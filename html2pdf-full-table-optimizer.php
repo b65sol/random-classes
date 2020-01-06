@@ -67,6 +67,48 @@ class Html2PdfTableOptimizer {
     return $words[0];
   }
 
+  /**
+   * Size the columns evenly, except for specific specified columns in $column_widths
+   * @param String $table_width How wide our table is in HTML units.
+   * @param Array $column_widths Known column sizes. Use null to skip a column. Example:
+   *  2nd column is 10mm: [null, 10mm]
+   */
+  public function determine_column_widths_evenly($table_width = '100%', $column_widths = []) {
+    $margins = $this->pdf->getMargins();
+    $space = $this->pdf->getHTMLUnitToUnits($table_width, $this->pdf->getPageWidth() - $margins['left'] - $margins['right']);
+    $colwidths = [];
+    $cssconv = new CssConverter();
+    for($i = 0; $i < count($this->header_row); $i++) {
+      if(!empty($column_widths[$i])) {
+        $colwidths[$i] = $cssconv->convertToMM($column_widths[$i]) / $space;
+      } else {
+        $colwidths[$i] = null;
+      }
+    }
+    $remaining_available = 1 - array_sum($colwidths);
+    $remaining_count = 0;
+    foreach($colwidths as $column => $size) {
+      if($size == null) {
+        $remaining_count++;
+      }
+    }
+
+    $colwidths = array_map(function($a) use ($remaining_available, $remaining_count) {
+      return $a == null ? $remaining_available / $remaining_count : $a;
+    }, $colwidths);
+
+    $css = '';
+    foreach($colwidths as $column => $width) {
+      $css .= ".{$this->column_class_prefix}{$column} { width:".sprintf('%.2f', $width*100)."% }\n";
+    }
+    return $css;
+  }
+
+  /**
+   * Size the columns based on the minimum width to support the longest word in the column.
+   * @param String $table_width How wide our table is in HTML units.
+   * @param String $pad_string Padding string to add to content to account for padding and text style differences.
+   */
   public function determine_column_widths_by_minimum_strategy($table_width = "100%", $pad_string = 'aaa') {
     $space = $this->pdf->getHTMLUnitToUnits($table_width, $this->pdf->getPageWidth() - $margins['left'] - $margins['right']);
     foreach($this->header_row as $column => $rowcell) {
@@ -184,7 +226,7 @@ class Html2PdfTableOptimizer {
    * Returns HTML for the table and CSS width rules for sizing.
    */
   public function render_html() {
-    $output = "<table id=\"{$this->id}\">";
+    $output = "<table>";
     $output .= '<thead><tr>';
     foreach($this->header_row as $column => $header) {
       $output .= "<th class=\"{$this->column_class_prefix}{$column} {$header[1]}\">".$header[0]."</th>";
